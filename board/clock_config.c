@@ -358,6 +358,7 @@ outputs:
 settings:
 - {id: MCGMode, value: PEE}
 - {id: powerMode, value: HSRUN}
+- {id: LPUARTClkConfig, value: 'yes'}
 - {id: MCG.FCRDIV.scale, value: '1', locked: true}
 - {id: MCG.FRDIV.scale, value: '256'}
 - {id: MCG.IREFS.sel, value: MCG.FRDIV}
@@ -372,9 +373,9 @@ settings:
 - {id: OSC_CR_ERCLKEN_UNDIV_CFG, value: Enabled}
 - {id: RTC_CR_OSCE_CFG, value: Enabled}
 - {id: RTC_CR_OSC_CAP_LOAD_CFG, value: SC12PF}
-- {id: SIM.LPUARTSRCSEL.sel, value: OSC.OSCERCLK}
 - {id: SIM.OSC32KSEL.sel, value: RTC.RTC32KCLK}
-- {id: SIM.OUTDIV2.scale, value: '2'}
+- {id: SIM.OUTDIV1.scale, value: '1', locked: true}
+- {id: SIM.OUTDIV2.scale, value: '2', locked: true}
 - {id: SIM.OUTDIV3.scale, value: '4'}
 - {id: SIM.OUTDIV4.scale, value: '6'}
 - {id: SIM.PLLFLLSEL.sel, value: MCG.MCGPLLCLK}

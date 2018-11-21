@@ -56,6 +56,9 @@
 #define NEW_READING (1)
 #define PRINTED_READINGS (2)
 
+#define READING_GEN_PERIOD (configTICK_RATE_HZ/6)
+#define READING_GEN_COUNT (1)
+
 #define SDSPI SPI0
 #define SDSPI_MASTER_PCS_FOR_INIT kDSPI_Pcs0
 #define SDSPI_MASTER_CLK_SRC DSPI0_CLK_SRC
@@ -68,7 +71,6 @@
  * Prototypes
  ******************************************************************************/
 static void vCreateReading(TimerHandle_t xTimer);
-static void vPrintReadings(TimerHandle_t xTimer);
 static void task_saveReadings(void *pvParameters);
 static void task_printReadings(void *pvParameters);
 
@@ -78,6 +80,7 @@ static status_t cardHost_exchange(uint8_t *in, uint8_t *out, uint32_t size);
 static dspi_master_config_t SDHC_customConfig;
 
 QueueHandle_t queue_readings;
+TaskHandle_t printReadings;
 
 uint32_t blocksPerReading;
 uint32_t blockIndex;
@@ -101,7 +104,6 @@ static sdspi_host_t cardHost;
  */
 int main(void) {
 	TimerHandle_t readingTimer;
-	TimerHandle_t printTimer;
 
 	rtc_config_t rtcConfig;
     rtc_datetime_t date;
@@ -116,7 +118,6 @@ int main(void) {
     /* Init SDHC SPI peripheral */
     BOARD_InitSDHCPeripheral();
     BOARD_InitLEDsPeripheral();
-
 
     /* RTC init */
     RTC_GetDefaultConfig(&rtcConfig);
@@ -133,7 +134,6 @@ int main(void) {
     RTC_SetDatetime(RTC, &date);
     RTC_StartTimer(RTC);
 
-
 	/* Initialize SD card */
 	cardHost.busBaudRate = BOARD_SDHC_config.ctarConfig.baudRate;
 	cardHost.setFrequency = cardHost_setFrequency;
@@ -143,6 +143,7 @@ int main(void) {
 	if (kStatus_Success != SDSPI_Init(&card))
 	{
 	    SDSPI_Deinit(&card);
+	    PRINTF("Couldn't init SD card.\r\n");
 	    configASSERT(pdFALSE);
 	}
 
@@ -155,7 +156,7 @@ int main(void) {
 		PRINTF("Card does not support high speed.\r\n");
 	}
 
-	SDSPI_EraseBlocks(&card, 0, card.blockCount);
+//	SDSPI_EraseBlocks(&card, 0, card.blockCount);
 
 
 	srand(time(NULL));
@@ -167,23 +168,21 @@ int main(void) {
     PRINTF("Created queue_readings.\r\n");
 
     /* Start timer to generate readings */
-    readingTimer = xTimerCreate("timer_createReading", configTICK_RATE_HZ, pdTRUE, NULL, vCreateReading);
+    readingTimer = xTimerCreate("timer_createReading", READING_GEN_PERIOD, pdTRUE, NULL, vCreateReading);
     configASSERT(readingTimer != NULL);
     PRINTF("Created readingTimer.\r\n");
-    configASSERT(xTimerStart(readingTimer, configTICK_RATE_HZ/4) == pdPASS);
+    configASSERT(xTimerStart(readingTimer, READING_GEN_PERIOD) == pdPASS);
 
+    // Start task to save generated readings from a queue
     configASSERT(xTaskCreate(task_saveReadings, "task_saveReadings",
     		configMINIMAL_STACK_SIZE+200, &card, configMAX_PRIORITIES-2, NULL) == pdPASS);
+    PRINTF("Created saveReadings task.\r\n");
 
-    TaskHandle_t printReadings;
+    // Start task to print readings when SW2 is pressed
     configASSERT(xTaskCreate(task_printReadings, "task_printReadings",
     			configMINIMAL_STACK_SIZE+200, &card, configMAX_PRIORITIES-3, &printReadings) == pdPASS);
+    PRINTF("Created printReadings task.\r\n");
 
-    /* Start timer to print out all readings */
-    printTimer = xTimerCreate("timer_printReadings", 20 * configTICK_RATE_HZ, pdTRUE, printReadings, vPrintReadings);
-    configASSERT(printTimer != NULL);
-    PRINTF("Created print_timer.\r\n");
-    configASSERT(xTimerStart(printTimer, 0) == pdPASS);
 
     vTaskStartScheduler();
     for (;;);
@@ -234,6 +233,7 @@ static void task_saveReadings(void *pvParameters) {
 					// then write block and increment block index
 					SDSPI_WriteBlocks(card, (uint8_t *)writeBuffer, blockIndex++, 1);
 					taskEXIT_CRITICAL();
+					configASSERT(blockIndex < card->blockCount);
 					queuedReadings = 0; // no more queued readings
 				}
 			} else if (buf->ucMessageID == PRINTED_READINGS) {
@@ -251,23 +251,32 @@ static void task_printReadings(void *pvParameters) {
 	struct CardReading * readBuffer;
 	struct ReadingMessage * msg;
 
+	card = (sdspi_card_t *)pvParameters;
+	readBuffer = pvPortMalloc(card->blockSize);
+
+	// Started print function, printout buttons can be enabled
+    BOARD_InitBUTTONsPeripheral();
+    // Using API calls in button interrupt (notify), so set priority low enough
+	NVIC_SetPriority(BOARD_SW2_IRQ, configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY);
 	for (;;) {
+		ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+		PRINTF("Received print request: printing %0.2fkB of readings\r\n", blockIndex*(card->blockSize/1024.0F));
 		if (blockIndex >= 1) {
-			card = (sdspi_card_t *)pvParameters;
-			readBuffer = pvPortMalloc(card->blockSize*blockIndex);
+			// print out blocks loading 1 block at a time
+			for (size_t startBlock=0; startBlock < blockIndex; startBlock++) {
 
-			taskENTER_CRITICAL();
-			SDSPI_ReadBlocks(card, (uint8_t *)readBuffer, 0, blockIndex);
-			taskEXIT_CRITICAL();
+				taskENTER_CRITICAL();
+				SDSPI_ReadBlocks(card, (uint8_t *)readBuffer, startBlock, 1);
+				taskEXIT_CRITICAL();
 
-			// iterate over readings and print
-			for (uint32_t i=0; i < card->blockSize*blockIndex / sizeof(struct CardReading); i += 1) {
-				PRINTF("[%04d-%02d-%02d %02d:%02d:%02d] %f\r\n",
-						readBuffer[i].timestamp.year, readBuffer[i].timestamp.month, readBuffer[i].timestamp.day,
-						readBuffer[i].timestamp.hour, readBuffer[i].timestamp.minute, readBuffer[i].timestamp.second,
-						readBuffer[i].reading);
+				// iterate over readings and print
+				for (uint32_t i=0; i < card->blockSize / sizeof(struct CardReading); i++) {
+					PRINTF("[%04d-%02d-%02d %02d:%02d:%02d] %f\r\n",
+							readBuffer[i].timestamp.year, readBuffer[i].timestamp.month, readBuffer[i].timestamp.day,
+							readBuffer[i].timestamp.hour, readBuffer[i].timestamp.minute, readBuffer[i].timestamp.second,
+							readBuffer[i].reading);
+				}
 			}
-			PRINTF("Readings cleared.\r\n\r\n");
 
 			msg = pvPortMalloc(sizeof(struct ReadingMessage));
 			msg->ucMessageID = PRINTED_READINGS;
@@ -275,31 +284,45 @@ static void task_printReadings(void *pvParameters) {
 				PRINTF("Couldn't post printed readings message, queue full.\r\n");
 				vPortFree(msg);
 			}
-			vPortFree(readBuffer);
+			PRINTF("Readings cleared.\r\n\r\n");
 		} else {
 			PRINTF("No readings to print.\r\n");
 		}
-
-		ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 	}
 }
 
-static void vPrintReadings(TimerHandle_t xTimer) {
-	xTaskNotifyGive((TaskHandle_t)pvTimerGetTimerID(xTimer));
-}
+//static void vPrintReadings(TimerHandle_t xTimer) {
+//	xTaskNotifyGive((TaskHandle_t)pvTimerGetTimerID(xTimer));
+//}
 
 /*!
  * @brief Task responsible for generating readings.
  */
 static void vCreateReading(TimerHandle_t xTimer) {
-	struct ReadingMessage * reading = pvPortMalloc(sizeof(struct ReadingMessage));
-	configASSERT(reading);
-	reading->ucMessageID = NEW_READING;
-	RTC_GetDatetime(RTC, &(reading->timestamp));
-	reading->reading = (float)rand()/100000;
+	for (size_t i=0; i < READING_GEN_COUNT; i++) {
+		struct ReadingMessage * reading = pvPortMalloc(sizeof(struct ReadingMessage));
+		configASSERT(reading);
+		reading->ucMessageID = NEW_READING;
+		RTC_GetDatetime(RTC, &(reading->timestamp));
+		reading->reading = (float)rand()/100000;
 
-    if (xQueueSendToBackFromISR(queue_readings, &reading, NULL) != pdPASS) {
-    	PRINTF("Couldn't post reading, queue full.\r\n");
-    	vPortFree(reading);
-    }
+		if (xQueueSendToBackFromISR(queue_readings, &reading, NULL) != pdPASS) {
+			PRINTF("Couldn't post reading, queue full.\r\n");
+			vPortFree(reading);
+		}
+	}
+}
+
+void BOARD_SW2_IRQHANDLER(void) {
+		BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+		/* Clear external interrupt flag. */
+	    GPIO_PortClearInterruptFlags(BOARD_SW2_GPIO, 1U << BOARD_SW2_GPIO_PIN);
+	    /* Change state of button. */
+	    configASSERT(printReadings);
+	    vTaskNotifyGiveFromISR(printReadings, &xHigherPriorityTaskWoken);
+	    /* Add for ARM errata 838869, affects Cortex-M4, Cortex-M4F Store immediate overlapping
+	      exception return operation might vector to incorrect interrupt */
+	#if defined __CORTEX_M && (__CORTEX_M == 4U)
+	    __DSB();
+	#endif
 }

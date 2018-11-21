@@ -29,6 +29,24 @@ extern "C" {
 /* Definition of the clock source frequency */
 #define UART_1_CLOCK_SOURCE CLOCK_GetFreq(UART1_CLK_SRC)
 
+/* Definitions for BOARD_InitBUTTONsPeripheral functional group */
+/* Alias for GPIOC peripheral */
+#define BOARD_SW2_GPIO GPIOC
+/* Alias for PORTC */
+#define BOARD_SW2_PORT PORTC
+/* SW2 interrupt vector ID (number). */
+#define BOARD_SW2_IRQN PORTC_IRQn
+/* SW2 interrupt handler identifier. */
+#define BOARD_SW2_IRQHANDLER PORTC_IRQHandler
+/* Alias for GPIOB peripheral */
+#define BOARD_SW3_GPIO GPIOB
+/* Alias for PORTB */
+#define BOARD_SW3_PORT PORTB
+/* SW3 interrupt vector ID (number). */
+#define BOARD_SW3_IRQN PORTB_IRQn
+/* SW3 interrupt handler identifier. */
+#define BOARD_SW3_IRQHANDLER PORTB_IRQHandler
+
 /* Definitions for BOARD_InitLEDsPeripheral functional group */
 /* Alias for GPIOD peripheral */
 #define BOARD_LEDRGB_BLUE_GPIO GPIOD
@@ -70,6 +88,7 @@ void BOARD_InitACCELPeripheral(void);
 void BOARD_InitSDHCPeripheral(void);
 void BOARD_InitPOTPeripheral(void);
 void BOARD_InitLSENSEPeripheral(void);
+void BOARD_InitWIFIPeripheral(void);
 
 /***********************************************************************************************************************
  * BOARD_InitBootPeripherals function

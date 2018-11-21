@@ -97,6 +97,7 @@ pin_labels:
 void BOARD_InitBootPins(void)
 {
     BOARD_InitPins();
+    BOARD_InitButtons();
     BOARD_InitDEBUG_UART();
     BOARD_InitSDHCPins();
 }
@@ -127,7 +128,7 @@ void BOARD_InitPins(void)
 /*
  * TEXT BELOW IS USED AS SETTING FOR TOOLS *************************************
 BOARD_InitLEDs:
-- options: {prefix: BOARD_, coreID: core0, enableClock: 'true'}
+- options: {callFromInitBoot: 'false', prefix: BOARD_, coreID: core0, enableClock: 'true'}
 - pin_list:
   - {pin_num: '23', peripheral: GPIOA, signal: 'GPIO, 1', pin_signal: PTA1/UART0_RX/FTM0_CH6/JTAG_TDI/EZP_DI, direction: OUTPUT, gpio_init_state: 'true', slew_rate: slow,
     open_drain: disable, pull_select: down, pull_enable: disable}
@@ -229,12 +230,12 @@ void BOARD_InitLEDs(void)
 /*
  * TEXT BELOW IS USED AS SETTING FOR TOOLS *************************************
 BOARD_InitButtons:
-- options: {prefix: BOARD_, coreID: core0, enableClock: 'true'}
+- options: {callFromInitBoot: 'true', prefix: BOARD_, coreID: core0, enableClock: 'true'}
 - pin_list:
-  - {pin_num: '40', peripheral: GPIOB, signal: 'GPIO, 17', pin_signal: PTB17/SPI1_SIN/UART0_TX/FTM_CLKIN1/FB_AD16/EWM_OUT_b, direction: INPUT, slew_rate: fast, open_drain: disable,
-    pull_select: up, pull_enable: enable}
-  - {pin_num: '44', peripheral: GPIOC, signal: 'GPIO, 1', pin_signal: ADC0_SE15/PTC1/LLWU_P6/SPI0_PCS3/UART1_RTS_b/FTM0_CH0/FB_AD13/I2S0_TXD0/LPUART0_RTS_b, direction: INPUT,
+  - {pin_num: '40', peripheral: GPIOB, signal: 'GPIO, 17', pin_signal: PTB17/SPI1_SIN/UART0_TX/FTM_CLKIN1/FB_AD16/EWM_OUT_b, direction: INPUT, gpio_interrupt: kPORT_InterruptFallingEdge,
     slew_rate: fast, open_drain: disable, pull_select: up, pull_enable: enable}
+  - {pin_num: '44', peripheral: GPIOC, signal: 'GPIO, 1', pin_signal: ADC0_SE15/PTC1/LLWU_P6/SPI0_PCS3/UART1_RTS_b/FTM0_CH0/FB_AD13/I2S0_TXD0/LPUART0_RTS_b, direction: INPUT,
+    gpio_interrupt: kPORT_InterruptFallingEdge, slew_rate: fast, open_drain: disable, pull_select: up, pull_enable: enable}
  * BE CAREFUL MODIFYING THIS COMMENT - IT IS YAML SETTINGS FOR TOOLS ***********
  */
 /* clang-format on */
@@ -283,6 +284,9 @@ void BOARD_InitButtons(void)
     /* PORTB17 (pin 40) is configured as PTB17 */
     PORT_SetPinConfig(BOARD_SW3_PORT, BOARD_SW3_PIN, &SW3);
 
+    /* Interrupt configuration on PORTB17 (pin 40): Interrupt on falling edge */
+    PORT_SetPinInterruptConfig(BOARD_SW3_PORT, BOARD_SW3_PIN, kPORT_InterruptFallingEdge);
+
     const port_pin_config_t SW2 = {/* Internal pull-up resistor is enabled */
                                    kPORT_PullUp,
                                    /* Fast slew rate is configured */
@@ -299,6 +303,9 @@ void BOARD_InitButtons(void)
                                    kPORT_UnlockRegister};
     /* PORTC1 (pin 44) is configured as PTC1 */
     PORT_SetPinConfig(BOARD_SW2_PORT, BOARD_SW2_PIN, &SW2);
+
+    /* Interrupt configuration on PORTC1 (pin 44): Interrupt on falling edge */
+    PORT_SetPinInterruptConfig(BOARD_SW2_PORT, BOARD_SW2_PIN, kPORT_InterruptFallingEdge);
 }
 
 /* clang-format off */
@@ -372,7 +379,7 @@ void BOARD_InitDEBUG_UART(void)
 /*
  * TEXT BELOW IS USED AS SETTING FOR TOOLS *************************************
 BOARD_InitAccelPins:
-- options: {prefix: BOARD_, coreID: core0, enableClock: 'true'}
+- options: {callFromInitBoot: 'false', prefix: BOARD_, coreID: core0, enableClock: 'true'}
 - pin_list:
   - {pin_num: '37', peripheral: I2C0, signal: SCL, pin_signal: ADC0_SE12/PTB2/I2C0_SCL/UART0_RTS_b/FTM0_FLT3, identifier: ACCEL_SCL, slew_rate: fast, open_drain: enable,
     pull_select: up, pull_enable: enable}
@@ -702,6 +709,43 @@ BOARD_InitLSENSE:
  * END ****************************************************************************************************************/
 void BOARD_InitLSENSE(void)
 {
+}
+
+/* clang-format off */
+/*
+ * TEXT BELOW IS USED AS SETTING FOR TOOLS *************************************
+BOARD_InitWIFI:
+- options: {callFromInitBoot: 'false', prefix: BOARD_, coreID: core0, enableClock: 'true'}
+- pin_list:
+  - {pin_num: '23', peripheral: UART0, signal: RX, pin_signal: PTA1/UART0_RX/FTM0_CH6/JTAG_TDI/EZP_DI, identifier: ''}
+  - {pin_num: '24', peripheral: UART0, signal: TX, pin_signal: PTA2/UART0_TX/FTM0_CH7/JTAG_TDO/TRACE_SWO/EZP_DO, identifier: ''}
+ * BE CAREFUL MODIFYING THIS COMMENT - IT IS YAML SETTINGS FOR TOOLS ***********
+ */
+/* clang-format on */
+
+/* FUNCTION ************************************************************************************************************
+ *
+ * Function Name : BOARD_InitWIFI
+ * Description   : Configures pin routing and optionally pin electrical features.
+ *
+ * END ****************************************************************************************************************/
+void BOARD_InitWIFI(void)
+{
+    /* Port A Clock Gate Control: Clock enabled */
+    CLOCK_EnableClock(kCLOCK_PortA);
+
+    /* PORTA1 (pin 23) is configured as UART0_RX */
+    PORT_SetPinMux(PORTA, 1U, kPORT_MuxAlt2);
+
+    /* PORTA2 (pin 24) is configured as UART0_TX */
+    PORT_SetPinMux(PORTA, 2U, kPORT_MuxAlt2);
+
+    SIM->SOPT5 = ((SIM->SOPT5 &
+                   /* Mask bits to zero which are setting */
+                   (~(SIM_SOPT5_UART0TXSRC_MASK)))
+
+                  /* UART 0 transmit data source select: UART0_TX pin. */
+                  | SIM_SOPT5_UART0TXSRC(SOPT5_UART0TXSRC_UART_TX));
 }
 /***********************************************************************************************************************
  * EOF
